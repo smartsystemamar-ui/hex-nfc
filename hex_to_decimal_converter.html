@@ -1,0 +1,228 @@
+<!-- Hex → Decimal Converter + NFC Reader -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Hex → Decimal Converter with NFC</title>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--accent:#60a5fa;--muted:#9aa6b2;--ok:#10b981;--err:#fb7185}
+    *{box-sizing:border-box}
+    body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial; margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; background:linear-gradient(180deg,#071127 0%, #0b1220 100%); color:#e6eef6}
+    .wrap{width:100%;max-width:760px;padding:28px}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border-radius:12px; padding:20px; box-shadow:0 6px 30px rgba(2,6,23,0.6);}
+    h1{font-size:20px;margin:0 0 8px}
+    p.lead{margin:0 0 18px;color:var(--muted);font-size:13px}
+
+    .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+    input[type=text]{flex:1;padding:12px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit;font-size:15px}
+    button{padding:10px 14px;border-radius:8px;border:0;background:var(--accent);color:#07203a;font-weight:600;cursor:pointer}
+    button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--muted)}
+    .output{margin-top:16px;padding:14px;border-radius:10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.03)}
+    .out-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .value{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace; font-size:16px;word-break:break-all}
+    .badge{padding:6px 8px;border-radius:999px;background:rgba(255,255,255,0.03);font-size:13px}
+    .badge.good{background:linear-gradient(90deg, rgba(16,185,129,0.14), rgba(16,185,129,0.06));border:1px solid rgba(16,185,129,0.12);color:var(--ok)}
+    .badge.warn{background:linear-gradient(90deg, rgba(250,204,21,0.08), rgba(250,204,21,0.03));color:#f59e0b}
+    .badge.err{background:linear-gradient(90deg, rgba(251,113,133,0.06), rgba(251,113,133,0.02));border:1px solid rgba(251,113,133,0.08);color:var(--err)}
+    .meta{color:var(--muted);font-size:13px;margin-top:8px}
+    .examples{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+    .chip{padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.03);cursor:pointer}
+    footer{margin-top:18px;color:var(--muted);font-size:12px}
+    .error{color:var(--err);margin-top:8px;font-size:13px}
+    @media (max-width:520px){.row{flex-direction:column;align-items:stretch}button{width:100%}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card" role="main">
+      <h1>Hex → Decimal Converter</h1>
+      <p class="lead">Paste a hex value (with or without <code>0x</code>), scan an NFC tag, and get the decimal value. Shows whether the decimal has 8 or 10 digits.</p>
+
+      <div class="row">
+        <input id="hexInput" type="text" placeholder="e.g. 0x5F5E100 or FF10A3" autocomplete="off" spellcheck="false" />
+        <button id="convertBtn">Convert</button>
+        <button id="clearBtn" class="ghost">Clear</button>
+        <button id="scanNFCBtn" class="ghost">Scan NFC</button>
+      </div>
+
+      <div class="examples">
+        <div class="chip" data-hex="0x5F5E100">0x5F5E100</div>
+        <div class="chip" data-hex="0x2540BE400">0x2540BE400</div>
+        <div class="chip" data-hex="FFFFFFFF">FFFFFFFF</div>
+        <div class="chip" data-hex="123456789ABC">123456789ABC</div>
+      </div>
+
+      <div id="error" class="error" aria-live="polite"></div>
+
+      <div class="output" aria-live="polite">
+        <div class="out-row">
+          <div style="flex:1">
+            <div style="font-size:13px;color:var(--muted)">Decimal</div>
+            <div id="decimalValue" class="value">—</div>
+            <div class="meta" id="digitMeta">Digits: —</div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+            <div id="digitBadge" class="badge">—</div>
+            <div style="display:flex;gap:8px">
+              <button id="copyBtn" class="ghost">Copy</button>
+              <button id="downloadBtn" class="ghost">Save .txt</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <footer>Note: NFC works only on modern Android browsers (Chrome/Edge) over HTTPS.</footer>
+    </div>
+  </div>
+
+  <script>
+    const hexInput = document.getElementById('hexInput');
+    const convertBtn = document.getElementById('convertBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const decimalValue = document.getElementById('decimalValue');
+    const digitMeta = document.getElementById('digitMeta');
+    const digitBadge = document.getElementById('digitBadge');
+    const errorEl = document.getElementById('error');
+    const copyBtn = document.getElementById('copyBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const scanBtn = document.getElementById('scanNFCBtn');
+
+    function normalizeHex(s){
+      if(!s) return '';
+      s = s.trim();
+      if(s.toLowerCase().startsWith('0x')) s = s.slice(2);
+      return s;
+    }
+
+    function isValidHex(s){
+      return /^[0-9a-fA-F]+$/.test(s);
+    }
+
+    function setError(msg){ errorEl.textContent = msg || ''; }
+
+    function convert(){
+      setError('');
+      const raw = hexInput.value;
+      const norm = normalizeHex(raw);
+      if(!norm){
+        decimalValue.textContent = '—';
+        digitMeta.textContent = 'Digits: —';
+        digitBadge.textContent = '—';
+        digitBadge.className = 'badge';
+        return;
+      }
+      if(!isValidHex(norm)){
+        setError('Invalid hex. Use characters 0-9 A-F.');
+        decimalValue.textContent = '—';
+        digitMeta.textContent = 'Digits: —';
+        digitBadge.textContent = 'Invalid';
+        digitBadge.className = 'badge err';
+        return;
+      }
+      try{
+        const big = BigInt('0x' + norm);
+        const decStr = big.toString(10);
+        decimalValue.textContent = decStr;
+        const digitCount = decStr.length;
+        digitMeta.textContent = `Digits: ${digitCount}`;
+        if(digitCount === 8){
+          digitBadge.textContent = '8-digit decimal';
+          digitBadge.className = 'badge good';
+        } else if(digitCount === 10){
+          digitBadge.textContent = '10-digit decimal';
+          digitBadge.className = 'badge good';
+        } else if(digitCount < 8){
+          digitBadge.textContent = `${digitCount}-digit (short)`;
+          digitBadge.className = 'badge warn';
+        } else if(digitCount > 10){
+          digitBadge.textContent = `${digitCount}-digit (long)`;
+          digitBadge.className = 'badge warn';
+        } else {
+          digitBadge.textContent = `${digitCount}-digit`;
+          digitBadge.className = 'badge';
+        }
+      } catch (e){
+        setError('Conversion error: ' + (e && e.message || String(e)));
+      }
+    }
+
+    convertBtn.addEventListener('click', convert);
+    hexInput.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') convert(); });
+    clearBtn.addEventListener('click', ()=>{ hexInput.value=''; convert(); setError(''); hexInput.focus(); });
+
+    document.querySelectorAll('.chip').forEach(c=>{
+      c.addEventListener('click', ()=>{ hexInput.value = c.dataset.hex; convert(); });
+    });
+
+    copyBtn.addEventListener('click', async ()=>{
+      const txt = decimalValue.textContent || '';
+      if(!txt || txt === '—') return;
+      try{
+        await navigator.clipboard.writeText(txt);
+        copyBtn.textContent = 'Copied';
+        setTimeout(()=> copyBtn.textContent = 'Copy', 1200);
+      } catch {
+        setError('Failed to copy.');
+      }
+    });
+
+    downloadBtn.addEventListener('click', ()=>{
+      const txt = decimalValue.textContent || '';
+      if(!txt || txt === '—') return;
+      const blob = new Blob([txt], {type:'text/plain'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'hex-to-decimal.txt';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    });
+
+    // NFC Reading
+    async function startNFC() {
+      if (!("NDEFReader" in window)) {
+        setError("Web NFC not supported on this device/browser.");
+        return;
+      }
+      try {
+        const ndef = new NDEFReader();
+        await ndef.scan();
+        setError("Hold an NFC tag near your device...");
+
+        ndef.onreading = event => {
+          const decoder = new TextDecoder();
+          let hexData = "";
+          for (const record of event.message.records) {
+            if (record.recordType === "text") {
+              const text = decoder.decode(record.data);
+              hexData = text;
+            } else {
+              hexData = Array.from(new Uint8Array(record.data))
+                .map(b => b.toString(16).padStart(2,"0"))
+                .join("").toUpperCase();
+            }
+          }
+          if (hexData) {
+            hexInput.value = hexData;
+            convert();
+            setError("NFC tag read successfully.");
+          } else {
+            setError("No usable hex data found in NFC tag.");
+          }
+        };
+      } catch (err) {
+        setError("NFC Error: " + err.message);
+      }
+    }
+
+    scanBtn.addEventListener("click", startNFC);
+
+    // Initialize with an example
+    hexInput.value = '0x5F5E100';
+    convert();
+  </script>
+</body>
+</html>
